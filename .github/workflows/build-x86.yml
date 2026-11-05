@@ -1,0 +1,83 @@
+name: Compilar OTClient 32 bits (x86)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-x86:
+    name: Windows x86 (32 bits)
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 180
+    env:
+      VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/vcpkgcache,readwrite"
+    steps:
+      - name: Descargar codigo
+        uses: actions/checkout@v6
+
+      - name: Leer version de vcpkg
+        shell: pwsh
+        run: |
+          $json = Get-Content vcpkg.json -Raw | ConvertFrom-Json
+          "VCPKG_GIT_COMMIT_ID=$($json.'builtin-baseline')" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Cache de librerias
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/vcpkgcache
+          key: vcpkg-x86-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-x86-
+
+      - name: Preparar compilador de 32 bits
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Preparar vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitURL: "https://github.com/microsoft/vcpkg.git"
+          vcpkgGitCommitId: ${{ env.VCPKG_GIT_COMMIT_ID }}
+
+      - name: Configurar (32 bits)
+        shell: pwsh
+        run: |
+          cmake -S . -B build/x86 -G Ninja `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x86-windows-static-release `
+            -DVCPKG_HOST_TRIPLET=x64-windows `
+            -DVCPKG_OVERLAY_TRIPLETS="${{ github.workspace }}/cmake/triplets" `
+            -DVCPKG_BUILD_TYPE=release `
+            "-DVCPKG_INSTALL_OPTIONS=--clean-packages-after-build;--clean-buildtrees-after-build" `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DBUILD_STATIC_LIBRARY=ON `
+            -DCMAKE_C_COMPILER=cl.exe `
+            -DCMAKE_CXX_COMPILER=cl.exe `
+            -DTOGGLE_BIN_FOLDER=ON `
+            -DOPTIONS_ENABLE_IPO=OFF `
+            -DOTCLIENT_BUILD_TESTS=OFF `
+            -DSPEED_UP_BUILD_UNITY=ON
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Compilar
+        shell: pwsh
+        run: |
+          cmake --build build/x86
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Reunir resultado
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+          Get-ChildItem build/x86 -Recurse -Include *.exe,*.dll -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -notmatch 'vcpkg_installed|CMakeFiles|_deps|vcpkg_' } |
+            ForEach-Object { Copy-Item $_.FullName out/ -Force; Write-Host "Copiado: $($_.Name)" }
+          if (-not (Get-ChildItem out -Filter *.exe)) { throw "No se genero ningun .exe" }
+
+      - name: Subir resultado
+        uses: actions/upload-artifact@v4
+        with:
+          name: otclient-windows-x86-32bits
+          path: out/
