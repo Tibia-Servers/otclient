@@ -64,20 +64,25 @@ jobs:
       - name: Arreglar conflicto ssize_t (32 bits)
         shell: pwsh
         run: |
-          $files = Get-ChildItem build/x86/vcpkg_installed -Recurse -Filter httplib.h -ErrorAction SilentlyContinue
-          foreach ($f in $files) {
-            Write-Host "Revisando $($f.FullName)"
-            $lines = Get-Content $f.FullName
-            for ($i = 0; $i -lt $lines.Count; $i++) {
-              if ($lines[$i] -match 'ssize_t' -and $lines[$i] -match '(using\s+ssize_t\s*=|typedef\s+.*ssize_t)') {
-                Write-Host "ANTES  L$($i+1): $($lines[$i])"
-                $lines[$i] = $lines[$i] -replace '=\s*(long long|__int64|long|int)\s*;', '= int;'
-                $lines[$i] = $lines[$i] -replace 'typedef\s+(long long|__int64|long)\s+ssize_t', 'typedef int ssize_t'
-                Write-Host "DESPUES L$($i+1): $($lines[$i])"
-              }
-            }
-            Set-Content -Path $f.FullName -Value $lines
+          $inc = Get-ChildItem build/x86 -Recurse -Filter httplib.h -ErrorAction SilentlyContinue
+          if (-not $inc) { Write-Host "AVISO: no se encontro httplib.h" }
+          foreach ($f in $inc) {
+            Write-Host "== $($f.FullName)"
+            $text = [System.IO.File]::ReadAllText($f.FullName)
+            # cualquier definicion de ssize_t (using ... = tipo;  o  typedef tipo ssize_t;)
+            $n1 = [regex]::Matches($text, 'using\s+ssize_t\s*=\s*[^;]+;').Count
+            $n2 = [regex]::Matches($text, 'typedef\s+[^;\r\n]*\bssize_t\s*;').Count
+            Write-Host "Definiciones encontradas: using=$n1 typedef=$n2"
+            $text = [regex]::Replace($text, 'using\s+ssize_t\s*=\s*[^;]+;', 'using ssize_t = int;')
+            $text = [regex]::Replace($text, 'typedef\s+[^;\r\n]*\bssize_t\s*;', 'typedef int ssize_t;')
+            [System.IO.File]::WriteAllText($f.FullName, $text)
+            Select-String -Path $f.FullName -Pattern 'ssize_t' | Select-Object -First 12 | ForEach-Object { Write-Host ("L{0}: {1}" -f $_.LineNumber, $_.Line) }
           }
+          Write-Host "== Otras definiciones de ssize_t en librerias:"
+          Get-ChildItem build/x86/vcpkg_installed -Recurse -Include *.h,*.hpp -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -ne 'httplib.h' } |
+            Select-String -Pattern '(typedef\s+[^;]*\bssize_t\s*;|using\s+ssize_t\s*=)' -ErrorAction SilentlyContinue |
+            Select-Object -First 10 | ForEach-Object { Write-Host ("{0}:{1}: {2}" -f $_.Path, $_.LineNumber, $_.Line) }
 
       - name: Compilar
         shell: pwsh
