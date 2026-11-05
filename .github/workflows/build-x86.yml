@@ -73,8 +73,8 @@ jobs:
             $n1 = [regex]::Matches($text, 'using\s+ssize_t\s*=\s*[^;]+;').Count
             $n2 = [regex]::Matches($text, 'typedef\s+[^;\r\n]*\bssize_t\s*;').Count
             Write-Host "Definiciones encontradas: using=$n1 typedef=$n2"
-            $text = [regex]::Replace($text, 'using\s+ssize_t\s*=\s*[^;]+;', 'using ssize_t = int;')
-            $text = [regex]::Replace($text, 'typedef\s+[^;\r\n]*\bssize_t\s*;', 'typedef int ssize_t;')
+            $text = [regex]::Replace($text, 'using\s+ssize_t\s*=\s*[^;]+;', 'using ssize_t = long;')
+            $text = [regex]::Replace($text, 'typedef\s+[^;\r\n]*\bssize_t\s*;', 'typedef long ssize_t;')
             [System.IO.File]::WriteAllText($f.FullName, $text)
             Select-String -Path $f.FullName -Pattern 'ssize_t' | Select-Object -First 12 | ForEach-Object { Write-Host ("L{0}: {1}" -f $_.LineNumber, $_.Line) }
           }
@@ -104,3 +104,4 @@ jobs:
         with:
           name: otclient-windows-x86-32bits
           path: out/
+
