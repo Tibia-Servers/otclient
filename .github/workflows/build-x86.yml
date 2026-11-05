@@ -61,6 +61,24 @@ jobs:
             -DSPEED_UP_BUILD_UNITY=ON
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Arreglar conflicto ssize_t (32 bits)
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem build/x86/vcpkg_installed -Recurse -Filter httplib.h -ErrorAction SilentlyContinue
+          foreach ($f in $files) {
+            Write-Host "Revisando $($f.FullName)"
+            $lines = Get-Content $f.FullName
+            for ($i = 0; $i -lt $lines.Count; $i++) {
+              if ($lines[$i] -match 'ssize_t' -and $lines[$i] -match '(using\s+ssize_t\s*=|typedef\s+.*ssize_t)') {
+                Write-Host "ANTES  L$($i+1): $($lines[$i])"
+                $lines[$i] = $lines[$i] -replace '=\s*(long long|__int64|long|int)\s*;', '= int;'
+                $lines[$i] = $lines[$i] -replace 'typedef\s+(long long|__int64|long)\s+ssize_t', 'typedef int ssize_t'
+                Write-Host "DESPUES L$($i+1): $($lines[$i])"
+              }
+            }
+            Set-Content -Path $f.FullName -Value $lines
+          }
+
       - name: Compilar
         shell: pwsh
         run: |
