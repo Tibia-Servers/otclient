@@ -1,0 +1,141 @@
+name: Compilar OTClient CIFRADO (32 bits, 64 bits y cifrador)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.nombre }}
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - nombre: Cliente 32 bits
+            arch: x86
+            triplet: x86-windows-static-release
+            builder: "0"
+            artifact: otclient-cifrado-32bits
+          - nombre: Cliente 64 bits
+            arch: x64
+            triplet: x64-windows-static-release
+            builder: "0"
+            artifact: otclient-cifrado-64bits
+          - nombre: Cifrador (solo para el dueno)
+            arch: x64
+            triplet: x64-windows-static-release
+            builder: "1"
+            artifact: otclient-cifrador
+    env:
+      VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/vcpkgcache,readwrite"
+      ENC_PASSWORD: ${{ secrets.ENC_PASSWORD }}
+      ENC_HEADER: ${{ secrets.ENC_HEADER }}
+      ARTIFACT_PASSWORD: ${{ secrets.ARTIFACT_PASSWORD }}
+    steps:
+      - name: Descargar codigo
+        uses: actions/checkout@v6
+
+      - name: Comprobar secretos
+        shell: pwsh
+        run: |
+          foreach ($n in 'ENC_PASSWORD','ENC_HEADER','ARTIFACT_PASSWORD') {
+            if (-not (Get-Item "env:$n" -ErrorAction SilentlyContinue).Value) { throw "Falta el secreto $n en GitHub (Settings > Secrets and variables > Actions)" }
+          }
+          if ($env:ENC_PASSWORD.Length -lt 100) { throw "ENC_PASSWORD debe tener al menos 100 caracteres" }
+          if ($env:ENC_HEADER -notmatch '^[A-Za-z0-9]+$') { throw "ENC_HEADER solo puede tener letras y numeros" }
+
+      - name: Activar cifrado en config.h
+        shell: pwsh
+        run: |
+          $p = 'src/framework/config.h'
+          $t = [System.IO.File]::ReadAllText($p)
+          $t = $t.Replace('#define ENABLE_ENCRYPTION 0', '#define ENABLE_ENCRYPTION 1')
+          $t = $t.Replace('#define ENABLE_ENCRYPTION_BUILDER 0', '#define ENABLE_ENCRYPTION_BUILDER ${{ matrix.builder }}')
+          $t = $t.Replace('SET_YOUR_PASSWORD_HERE', $env:ENC_PASSWORD)
+          $t = $t.Replace('SET_YOUR_HEADER_HERE', $env:ENC_HEADER)
+          [System.IO.File]::WriteAllText($p, $t)
+          Select-String -Path $p -Pattern 'ENABLE_ENCRYPTION' | ForEach-Object { Write-Host $_.Line }
+
+      - name: Leer version de vcpkg
+        shell: pwsh
+        run: |
+          $json = Get-Content vcpkg.json -Raw | ConvertFrom-Json
+          "VCPKG_GIT_COMMIT_ID=$($json.'builtin-baseline')" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Cache de librerias
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/vcpkgcache
+          key: vcpkg-${{ matrix.arch }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-${{ matrix.arch }}-
+
+      - name: Preparar compilador
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.arch }}
+
+      - name: Preparar vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitURL: "https://github.com/microsoft/vcpkg.git"
+          vcpkgGitCommitId: ${{ env.VCPKG_GIT_COMMIT_ID }}
+
+      - name: Configurar
+        shell: pwsh
+        run: |
+          cmake -S . -B build/out -G Ninja `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} `
+            -DVCPKG_HOST_TRIPLET=x64-windows `
+            -DVCPKG_OVERLAY_TRIPLETS="${{ github.workspace }}/cmake/triplets" `
+            -DVCPKG_BUILD_TYPE=release `
+            "-DVCPKG_INSTALL_OPTIONS=--clean-packages-after-build;--clean-buildtrees-after-build" `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DBUILD_STATIC_LIBRARY=ON `
+            -DCMAKE_C_COMPILER=cl.exe `
+            -DCMAKE_CXX_COMPILER=cl.exe `
+            -DTOGGLE_BIN_FOLDER=ON `
+            -DOPTIONS_ENABLE_IPO=OFF `
+            -DOTCLIENT_BUILD_TESTS=OFF `
+            -DSPEED_UP_BUILD_UNITY=ON
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Arreglar conflicto ssize_t (solo 32 bits)
+        if: matrix.arch == 'x86'
+        shell: pwsh
+        run: |
+          $inc = Get-ChildItem build/out -Recurse -Filter httplib.h -ErrorAction SilentlyContinue
+          foreach ($f in $inc) {
+            $text = [System.IO.File]::ReadAllText($f.FullName)
+            $text = [regex]::Replace($text, 'using\s+ssize_t\s*=\s*[^;]+;', 'using ssize_t = long;')
+            $text = [regex]::Replace($text, 'typedef\s+[^;\r\n]*\bssize_t\s*;', 'typedef long ssize_t;')
+            [System.IO.File]::WriteAllText($f.FullName, $text)
+          }
+
+      - name: Compilar
+        shell: pwsh
+        run: |
+          cmake --build build/out
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Reunir y proteger resultado
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+          Get-ChildItem build/out -Recurse -Include *.exe,*.dll -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -notmatch 'vcpkg_installed|CMakeFiles|_deps|vcpkg_' } |
+            ForEach-Object { Copy-Item $_.FullName out/ -Force; Write-Host "Copiado: $($_.Name)" }
+          if (-not (Get-ChildItem out -Filter *.exe)) { throw "No se genero ningun .exe" }
+          # el repositorio es publico: el resultado va en un zip con contrasena
+          7z a -tzip -mem=AES256 "-p$env:ARTIFACT_PASSWORD" "${{ matrix.artifact }}.zip" ./out/*
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Subir resultado
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.zip
