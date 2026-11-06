@@ -42,6 +42,11 @@ jobs:
       - name: Comprobar secretos
         shell: pwsh
         run: |
+          # los secretos pueden traer un salto de linea al final: se dejan solo letras y numeros
+          foreach ($n in 'ENC_PASSWORD','ENC_HEADER','ARTIFACT_PASSWORD') {
+            $v = (Get-Item "env:$n" -ErrorAction SilentlyContinue).Value
+            if ($v) { $clean = ($v -replace '[^A-Za-z0-9]', ''); "$n=$clean" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8; Set-Item "env:$n" $clean }
+          }
           foreach ($n in 'ENC_PASSWORD','ENC_HEADER','ARTIFACT_PASSWORD') {
             if (-not (Get-Item "env:$n" -ErrorAction SilentlyContinue).Value) { throw "Falta el secreto $n en GitHub (Settings > Secrets and variables > Actions)" }
           }
