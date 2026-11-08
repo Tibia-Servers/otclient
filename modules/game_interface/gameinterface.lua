@@ -279,7 +279,159 @@ function bindKeys()
     }, gameRootPanel)
 
     g_keyboard.bindKeyDown('Ctrl+.', nextViewMode, gameRootPanel)
+
+    pcall(registerGeneralKeybinds, gameRootPanel)
 end
+
+-- ---------------------------------------------------------------------------
+-- TibiaRL2: atajos generales que faltaban respecto al cliente de CipSoft
+-- Cada atajo va protegido con pcall: si una ventana no existe, simplemente no hace nada.
+-- ---------------------------------------------------------------------------
+local function addKeybind(category, action, primary, fn, rootPanel)
+    pcall(function()
+        Keybind.new(category, action, primary or "", "")
+        Keybind.bind(category, action, {
+            {
+                type = KEY_DOWN,
+                callback = function() pcall(fn) end,
+            }
+        }, rootPanel)
+    end)
+end
+
+local function creaturesForBattleList()
+    local list = {}
+    local player = g_game.getLocalPlayer()
+    if not player then return list end
+    local ppos = player:getPosition()
+    for _, c in ipairs(g_map.getSpectators(ppos, false)) do
+        if c ~= player and c:isMonster() and c:getHealthPercent() > 0 then
+            local pos = c:getPosition()
+            if pos and pos.z == ppos.z then
+                table.insert(list, { creature = c, dist = math.max(math.abs(pos.x - ppos.x), math.abs(pos.y - ppos.y)) })
+            end
+        end
+    end
+    table.sort(list, function(a, b)
+        if a.dist ~= b.dist then return a.dist < b.dist end
+        return a.creature:getId() < b.creature:getId()
+    end)
+    return list
+end
+
+local function attackByOffset(mode)
+    local list = creaturesForBattleList()
+    if #list == 0 then return end
+    local target = 1
+    if mode ~= "first" then
+        local current = g_game.getAttackingCreature()
+        local index = 0
+        if current then
+            for i, e in ipairs(list) do
+                if e.creature == current then index = i break end
+            end
+        end
+        if mode == "next" then
+            target = (index % #list) + 1
+        else
+            target = index <= 1 and #list or index - 1
+        end
+    end
+    g_game.attack(list[target].creature)
+end
+
+local function toggleActionBars(first, last, names)
+    local actionbar = modules.game_actionbar
+    if not actionbar then return end
+    local anyVisible = false
+    for n = first, last do
+        local bar = actionbar.actionBars and actionbar.actionBars[n]
+        if bar and bar:isVisible() then anyVisible = true end
+    end
+    for i, n in ipairs(names) do
+        actionbar.configureActionBar(n, not anyVisible)
+    end
+end
+
+local function toggleActionBar(n, name)
+    local actionbar = modules.game_actionbar
+    if not actionbar then return end
+    local bar = actionbar.actionBars and actionbar.actionBars[n]
+    local visible = bar and bar:isVisible()
+    actionbar.configureActionBar(name, not visible)
+end
+
+function registerGeneralKeybinds(rootPanel)
+    -- Action Bar
+    local sides = {
+        { "Bottom", 1, { "actionBarShowBottom1", "actionBarShowBottom2", "actionBarShowBottom3" } },
+        { "Left", 4, { "actionBarShowLeft1", "actionBarShowLeft2", "actionBarShowLeft3" } },
+        { "Right", 7, { "actionBarShowRight1", "actionBarShowRight2", "actionBarShowRight3" } },
+    }
+    for _, side in ipairs(sides) do
+        local sideName, firstIndex, keys = side[1], side[2], side[3]
+        for i = 1, 3 do
+            addKeybind("Action Bar", "Show/hide " .. sideName .. " Action Bar " .. i, "", function()
+                toggleActionBar(firstIndex + i - 1, keys[i])
+            end, rootPanel)
+        end
+        addKeybind("Action Bar", "Show/hide " .. sideName .. " Action Bars", "", function()
+            toggleActionBars(firstIndex, firstIndex + 2, keys)
+        end, rootPanel)
+    end
+
+    -- Battle List
+    addKeybind("Battle List", "Attack First Target", "", function() attackByOffset("first") end, rootPanel)
+    addKeybind("Battle List", "Attack Next Target", "", function() attackByOffset("next") end, rootPanel)
+    addKeybind("Battle List", "Attack Previous Target", "", function() attackByOffset("previous") end, rootPanel)
+
+    -- Chat Mode
+    addKeybind("Chat Mode", "Set to Chat On", "", function()
+        if not modules.game_console.isChatEnabled() then modules.game_console.toggleChat() end
+    end, rootPanel)
+    addKeybind("Chat Mode", "Set to Chat Off", "", function()
+        if modules.game_console.isChatEnabled() then modules.game_console.toggleChat() end
+    end, rootPanel)
+
+    -- Combat Mode / Combat
+    addKeybind("Combat Mode", "Set to Offensive", "", function() g_game.setFightMode(FightOffensive) end, rootPanel)
+    addKeybind("Combat Mode", "Set to Balanced", "", function() g_game.setFightMode(FightBalanced) end, rootPanel)
+    addKeybind("Combat Mode", "Set to Defensive", "", function() g_game.setFightMode(FightDefensive) end, rootPanel)
+    addKeybind("Combat", "Toggle Chase Mode", "", function()
+        g_game.setChaseMode(g_game.getChaseMode() == ChaseOpponent and DontChase or ChaseOpponent)
+    end, rootPanel)
+    addKeybind("Combat", "Toggle Secure Mode", "", function()
+        g_game.setSafeFight(not g_game.isSafeFight())
+    end, rootPanel)
+
+    -- Dialogs
+    addKeybind("Dialogs", "Open Compendium", "", function() modules.game_compendium.toggle() end, rootPanel)
+    addKeybind("Dialogs", "Open Cyclopedia - Bestiary", "", function() modules.game_cyclopedia.Cyclopedia.openTab("bestiary") end, rootPanel)
+    addKeybind("Dialogs", "Open Cyclopedia - Character", "", function() modules.game_cyclopedia.Cyclopedia.openTab("character") end, rootPanel)
+    addKeybind("Dialogs", "Open Cyclopedia - Charms", "", function() modules.game_cyclopedia.Cyclopedia.openTab("charms") end, rootPanel)
+    addKeybind("Dialogs", "Open Cyclopedia - Items", "", function() modules.game_cyclopedia.Cyclopedia.openTab("items") end, rootPanel)
+    addKeybind("Dialogs", "Open Cyclopedia - Magical Archive", "", function() modules.game_cyclopedia.Cyclopedia.openTab("magicalArchives") end, rootPanel)
+    addKeybind("Dialogs", "Open Cyclopedia - Map", "", function() modules.game_cyclopedia.Cyclopedia.openTab("map") end, rootPanel)
+    addKeybind("Dialogs", "Open Options", "", function() modules.client_options.show() end, rootPanel)
+    addKeybind("Dialogs", "Open Prey Dialog", "Ctrl+Y", function() modules.game_prey.toggle() end, rootPanel)
+    addKeybind("Dialogs", "Open Questlog", "Ctrl+U", function() modules.game_questlog.show() end, rootPanel)
+    addKeybind("Dialogs", "Open Reward Wall", "", function() modules.game_rewardwall.toggle() end, rootPanel)
+    addKeybind("Dialogs", "Open Task Board", "", function() TaskBoardController:toggle() end, rootPanel)
+    addKeybind("Dialogs", "Open Weapon Proficiency", "", function() modules.game_proficiency.toggle() end, rootPanel)
+    addKeybind("Dialogs", "Open Wheel of Destiny", "", function() modules.game_wheel.toggle() end, rootPanel)
+
+    -- Minimap
+    addKeybind("Minimap", "Center", "", function() modules.game_minimap.resetMap() end, rootPanel)
+    addKeybind("Minimap", "One Floor Down", "Alt+PgDown", function() modules.game_minimap.downLayer() end, rootPanel)
+    addKeybind("Minimap", "One Floor Up", "Alt+PgUp", function() modules.game_minimap.upLayer() end, rootPanel)
+    addKeybind("Minimap", "Scroll East", "Alt+Right", function() modules.game_minimap.onClickRoseButton("east") end, rootPanel)
+    addKeybind("Minimap", "Scroll North", "Alt+Up", function() modules.game_minimap.onClickRoseButton("north") end, rootPanel)
+    addKeybind("Minimap", "Scroll South", "Alt+Down", function() modules.game_minimap.onClickRoseButton("south") end, rootPanel)
+    addKeybind("Minimap", "Scroll West", "Alt+Left", function() modules.game_minimap.onClickRoseButton("west") end, rootPanel)
+    addKeybind("Minimap", "Zoom In", "Alt+End", function() modules.game_minimap.zoomIn() end, rootPanel)
+    addKeybind("Minimap", "Zoom Out", "Alt+Home", function() modules.game_minimap.zoomOut() end, rootPanel)
+end
+
 
 function terminate()
     StatsBar.terminate()
