@@ -503,10 +503,39 @@ function compareVips(a, b)
             end
         end
     end
+    -- TibiaRL2: desempate fijo por nombre, para que el orden nunca cambie al azar
+    -- cuando un jugador se conecta o desconecta
+    local an = a:getText()
+    local bn = b:getText()
+    if an ~= nil and bn ~= nil then
+        return an:lower() < bn:lower()
+    end
     return false
 end
 
+-- TibiaRL2: reordena la lista (sin grupos) con el mismo criterio que "Sort by ...",
+-- asi el orden es siempre el mismo se conecte quien se conecte.
+local function resortFlatVipList()
+    if not vipWindow then return end
+    if g_game.getFeature(GameVipGroups) and globalSettings.showGrouped then return end
+    local contentPanel = vipWindow:getChildById('contentsPanel')
+    if not contentPanel then return end
+    local children = contentPanel:getChildren()
+    table.sort(children, compareVips)
+    for i, child in ipairs(children) do
+        contentPanel:moveChildToIndex(child, i)
+    end
+    contentPanel:updateLayout()
+end
+
+local onAddVipInner
+
 function onAddVip(id, name, state, description, iconId, notify, groupID, bool)
+    onAddVipInner(id, name, state, description, iconId, notify, groupID, bool)
+    resortFlatVipList()
+end
+
+onAddVipInner = function(id, name, state, description, iconId, notify, groupID, bool)
     if g_game.getFeature(GameAdditionalVipInfo) then
         vipInfo[name] = {
             playerId = id,
@@ -625,16 +654,20 @@ function onAddVip(id, name, state, description, iconId, notify, groupID, bool)
 end
 
 function onVipStateChange(id, state, groupID)
+    local name, description, iconId, notify
     if g_game.getFeature(GameVipGroups) and globalSettings.showGrouped then
-        local name, description, iconId, notify = searchPlayerbyId(id)
+        name, description, iconId, notify = searchPlayerbyId(id)
         onAddVip(id, name, state, description, iconId, notify, groupID, true)
     else
         local vipList = vipWindow:getChildById('contentsPanel')
         local label = vipList:getChildById('vip' .. id)
-        local name = label:getText()
-        local description = label:getTooltip()
-        local iconId = label.iconId
-        local notify = label.notifyLogin
+        if not label then
+            return
+        end
+        name = label:getText()
+        description = label:getTooltip()
+        iconId = label.iconId
+        notify = label.notifyLogin
         label:destroy()
     
         onAddVip(id, name, state, description, iconId, notify)
