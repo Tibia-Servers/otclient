@@ -417,6 +417,8 @@ function onMarketReadOffer(action, amount, counter, itemId, playerName, price, s
 end
 
 function onParseStoreGetCoin(coins, transferableCoins)
+    -- TibiaRL2: el servidor no manda el recurso 91, guardamos el saldo transferible que llega por la tienda
+    transferableCoinsCache = tonumber(transferableCoins) or 0
     if not marketWindow or not marketWindow:isVisible() then
         return
     end

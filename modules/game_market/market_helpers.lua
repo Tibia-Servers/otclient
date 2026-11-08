@@ -24,12 +24,18 @@ function sendMarketCancelOffer(timestamp, counter)
     g_game.cancelMarketOffer(timestamp, counter)
 end
 
+transferableCoinsCache = 0
+
 function getTransferableTibiaCoins()
     local player = g_game.getLocalPlayer()
     if not player then
         return 0
     end
-    return player:getResourceBalance(91) or 0
+    local fromResource = player:getResourceBalance(91) or 0
+    if fromResource > 0 then
+        return fromResource
+    end
+    return transferableCoinsCache or 0
 end
 
 function convertGold(amount, showSign)

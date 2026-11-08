@@ -54,6 +54,20 @@ local SIDE_PANEL_WIDTH = 176
 -- Exposed as a module function so modules.client_options can keep the top bar
 -- arrows in sync with the side panel options, both when they are applied from
 -- the saved settings and when they are toggled.
+-- TibiaRL2: avisar al servidor de a que NPC se hizo clic, para que solo ese NPC conteste al "hi"
+local NPC_FOCUS_OPCODE = 152
+function talkHiToNpc(npc)
+    if npc then
+        pcall(function()
+            local protocolGame = g_game.getProtocolGame()
+            if protocolGame then
+                protocolGame:sendExtendedOpcode(NPC_FOCUS_OPCODE, tostring(npc:getId()))
+            end
+        end)
+    end
+    g_game.talk("hi")
+end
+
 function updateSidePanelButtons()
     if not (leftIncreaseSidePanels and leftDecreaseSidePanels and
         rightIncreaseSidePanels and rightDecreaseSidePanels) then
@@ -829,7 +843,7 @@ function createThingMenu(menuPosition, lookThing, useThing, creatureThing)
             if creatureThing:getPosition().z == localPosition.z then
                 if creatureThing:isNpc() then
                     menu:addOption(tr('Talk'), function()
-                        g_game.talk("hi")
+                        talkHiToNpc(creatureThing)
                     end)
                 end
 
@@ -1024,7 +1038,7 @@ function processMouseAction(menuPosition, mouseButton, autoWalkPos, lookThing, u
                 if playerPos.z == npcPos.z then
                     local dist = math.max(math.abs(playerPos.x - npcPos.x), math.abs(playerPos.y - npcPos.y))
                     if dist <= 3 then
-                        g_game.talk("hi")
+                        talkHiToNpc(creatureThing)
                         return true
                     end
                 end
@@ -1103,7 +1117,7 @@ function processMouseAction(menuPosition, mouseButton, autoWalkPos, lookThing, u
                 if playerPos.z == npcPos.z then
                     local dist = math.max(math.abs(playerPos.x - npcPos.x), math.abs(playerPos.y - npcPos.y))
                     if dist <= 3 then
-                        g_game.talk("hi")
+                        talkHiToNpc(creatureThing)
                         return true
                     end
                 end
@@ -1281,7 +1295,7 @@ function processMouseAction(menuPosition, mouseButton, autoWalkPos, lookThing, u
                     if playerPos.z == npcPos.z then
                         local dist = math.max(math.abs(playerPos.x - npcPos.x), math.abs(playerPos.y - npcPos.y))
                         if dist <= 3 then
-                            g_game.talk("hi")
+                            talkHiToNpc(creatureThing)
                             return true
                         end
                     end
@@ -1366,7 +1380,7 @@ function processMouseAction(menuPosition, mouseButton, autoWalkPos, lookThing, u
                     if playerPos.z == npcPos.z then
                         local dist = math.max(math.abs(playerPos.x - npcPos.x), math.abs(playerPos.y - npcPos.y))
                         if dist <= 3 then
-                            g_game.talk("hi")
+                            talkHiToNpc(creatureThing)
                             return true
                         end
                     end
@@ -1455,7 +1469,7 @@ function processMouseAction(menuPosition, mouseButton, autoWalkPos, lookThing, u
                     if playerPos.z == npcPos.z then
                         local dist = math.max(math.abs(playerPos.x - npcPos.x), math.abs(playerPos.y - npcPos.y))
                         if dist <= 3 then
-                            g_game.talk("hi")
+                            talkHiToNpc(creatureThing)
                             return true
                         end
                     end
